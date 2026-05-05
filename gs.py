@@ -38,7 +38,7 @@ def _headers() -> dict:
     }
 
 
-# ---------- URL + cookie helpers ---------------------------------------------
+# ---------- URL helpers -------------------------------------------------------
 
 def extract_cites_ids(url: str) -> list[str] | None:
     """Pull cluster IDs out of a `?cites=ID,ID,…` GS URL. None if absent."""
@@ -58,18 +58,6 @@ def extract_cites_ids_from_citation_html(html: str) -> list[str] | None:
         if cites_ids:
             return cites_ids
     return None
-
-
-def parse_cookie_string(raw: str) -> dict:
-    """Browser cookie header → {name: value}."""
-    out: dict[str, str] = {}
-    for piece in (raw or "").split(";"):
-        piece = piece.strip()
-        if not piece or "=" not in piece:
-            continue
-        k, v = piece.split("=", 1)
-        out[k.strip()] = v.strip()
-    return out
 
 
 # ---------- HTML parsing ------------------------------------------------------
@@ -168,29 +156,6 @@ def is_blocked_html(html: str) -> bool:
     )
 
 
-def _dedupe_by_title(papers: list[dict]) -> list[dict]:
-    seen: set[str] = set()
-    out: list[dict] = []
-    for p in papers:
-        key = (p.get("title") or "").lower().strip()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        out.append(p)
-    return out
-
-
-def parse_pasted_html(blob: str) -> dict:
-    """Parse one or more concatenated GS results pages."""
-    papers = _dedupe_by_title(parse_results_html(blob))
-    return {
-        "papers": papers,
-        "total": total_results(blob),
-        "fetched": len(papers),
-        "blocked": False,
-    }
-
-
 # ---------- HTTP scrapers -----------------------------------------------------
 
 def extract_title_from_citation_page(url: str) -> str | None:
@@ -213,16 +178,9 @@ def extract_title_from_citation_page(url: str) -> str | None:
     return None
 
 
-def extract_cites_ids_from_citation_page(
-    url: str,
-    *,
-    cookie_string: str = "",
-) -> list[str] | None:
+def extract_cites_ids_from_citation_page(url: str) -> list[str] | None:
     """Fetch a GS profile citation detail page and return its cited-by IDs."""
     session = requests.Session()
-    cookies = parse_cookie_string(cookie_string)
-    if cookies:
-        session.cookies.update(cookies)
     try:
         resp = session.get(url, headers=_headers(), timeout=15)
     except requests.RequestException:
@@ -237,7 +195,6 @@ def scrape_cites(
     *,
     max_results: int = 1000,
     page_size: int = 10,
-    cookie_string: str = "",
     delay_range: tuple[float, float] = (3.0, 6.0),
 ) -> dict:
     """Page through GS' `?cites=…` results until empty or blocked.
@@ -246,9 +203,6 @@ def scrape_cites(
     """
     cites_param = ",".join(cites_ids)
     session = requests.Session()
-    cookies = parse_cookie_string(cookie_string)
-    if cookies:
-        session.cookies.update(cookies)
 
     # Warm-up so subsequent requests look like in-session navigation.
     try:

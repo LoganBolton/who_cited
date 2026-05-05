@@ -53,33 +53,6 @@
         </div>
       </section>
 
-      <details id="cookie-fallback">
-        <summary>scholar cookies (use when blocked)</summary>
-        <div class="field" style="margin-top: 8px;">
-          <input
-            id="cookies"
-            name="cookies"
-            type="text"
-            placeholder="NID=…; __Secure-3PSID=…"
-            autocomplete="off"
-          />
-        </div>
-        <p class="muted">DevTools → Application → Cookies → scholar.google.com. Paste as one header string.</p>
-      </details>
-
-      <details id="html-fallback">
-        <summary>paste saved HTML</summary>
-        <div class="field" style="margin-top: 8px;">
-          <textarea
-            id="html"
-            name="html"
-            rows="6"
-            placeholder="view-source of scholar.google.com/scholar?cites=… — concatenate multiple pages for more results"
-          ></textarea>
-        </div>
-        <p class="muted">Foolproof fallback when GS blocks the scraper.</p>
-      </details>
-
       <button type="submit" id="submit-btn">find citations</button>
     </form>
 

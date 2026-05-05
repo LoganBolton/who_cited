@@ -2,10 +2,6 @@ const form = document.getElementById("search-form");
 const urlInput = document.getElementById("url");
 const titleInput = document.getElementById("title");
 const titleFallback = document.getElementById("title-fallback");
-const cookieFallback = document.getElementById("cookie-fallback");
-const cookiesInput = document.getElementById("cookies");
-const htmlFallback = document.getElementById("html-fallback");
-const htmlInput = document.getElementById("html");
 const submitBtn = document.getElementById("submit-btn");
 const presetButtons = Array.from(document.querySelectorAll("[data-title]"));
 const statusBox = document.getElementById("status");
@@ -150,21 +146,12 @@ function blockedHelpText(data) {
     : "Google Scholar blocked the app before it could list citing papers.";
   return [
     countText,
-    "To continue:",
-    "1. Easiest local fix: open the paper's cited-by page in your browser, solve Scholar's check if shown, then paste your scholar.google.com cookies below and run again.",
-    "2. Most reliable hosted fix: set SERPAPI_KEY on the server and restart the app.",
-    "3. Manual fallback: view source on the Scholar cited-by results page, paste the HTML below, then run again.",
+    "This app uses SerpApi for blocked Scholar pages. Check that SERPAPI_KEY is set in the server environment, the Flask server was restarted after setting it, and the SerpApi account has remaining searches.",
   ].join("\n");
 }
 
 function showBlockedHelp(data) {
-  if (cookieFallback) cookieFallback.open = true;
-  if (htmlFallback) htmlFallback.open = true;
   setStatus(blockedHelpText(data), "error");
-  if (cookiesInput && !cookiesInput.value.trim()) {
-    cookiesInput.focus({ preventScroll: true });
-    cookieFallback.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
 }
 
 function setLoading(isLoading) {
@@ -188,8 +175,6 @@ async function fetchCitations(activePreset = null) {
   const body = {
     url: urlInput.value.trim(),
     title,
-    cookies: cookiesInput ? cookiesInput.value.trim() : "",
-    html: htmlInput ? htmlInput.value.trim() : "",
   };
 
   try {
@@ -242,7 +227,6 @@ for (const button of presetButtons) {
   button.addEventListener("click", async () => {
     titleInput.value = button.dataset.title || "";
     urlInput.value = button.dataset.url || "";
-    if (htmlInput) htmlInput.value = "";
     titleFallback.open = !button.dataset.url;
     await fetchCitations(button);
   });

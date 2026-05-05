@@ -158,21 +158,6 @@ def test_author_line_truncation_three_dots():
     assert info["authors_truncated"] is True
 
 
-# ---------- gs.parse_cookie_string --------------------------------------------
-
-def test_cookie_string_parses_browser_format():
-    parsed = gs.parse_cookie_string("NID=abc; __Secure-3PSID=xyz; SID=foo")
-    assert parsed == {"NID": "abc", "__Secure-3PSID": "xyz", "SID": "foo"}
-
-
-def test_cookie_string_handles_extra_whitespace_and_blanks():
-    assert gs.parse_cookie_string("  NID=abc ;  ; FOO=bar ") == {"NID": "abc", "FOO": "bar"}
-
-
-def test_cookie_string_empty():
-    assert gs.parse_cookie_string("") == {}
-
-
 # ---------- s2._title_variants ------------------------------------------------
 
 def test_title_variants_strips_subtitle_and_shortens():
@@ -184,23 +169,6 @@ def test_title_variants_strips_subtitle_and_shortens():
 
 def test_title_variants_short_title_unchanged():
     assert s2._title_variants("Hello World") == ["Hello World"]
-
-
-# ---------- gs.parse_pasted_html ----------------------------------------------
-
-def test_parse_pasted_html_full_pipeline():
-    out = gs.parse_pasted_html(RESULTS_HTML)
-    assert out["fetched"] == 10
-    assert out["total"] == 219
-    assert out["blocked"] is False
-    assert out["papers"][0]["title"] == "Seed1. 5-vl technical report"
-    assert out["papers"][0]["authors"][0]["name"]
-    assert out["papers"][0]["authors"][0]["affiliations"] == []
-
-
-def test_parse_pasted_html_concatenated_pages_are_deduped():
-    blob = RESULTS_HTML + "\n" + RESULTS_HTML
-    assert gs.parse_pasted_html(blob)["fetched"] == 10
 
 
 # ---------- openalex name matching --------------------------------------------
@@ -295,18 +263,6 @@ def client(monkeypatch):
 
 def test_endpoint_rejects_empty_payload(client):
     assert client.post("/api/citations", json={}).status_code == 400
-
-
-def test_endpoint_pasted_html_path(client):
-    r = client.post("/api/citations", json={"html": RESULTS_HTML, "enrich_affiliations": False})
-    assert r.status_code == 200
-    body = r.get_json()
-    assert body["source"] == "pasted_html"
-    assert body["count"] == 10
-    assert body["total"] == 219
-    assert body["citations"][0]["title"].startswith("Seed1")
-    a = body["citations"][0]["authors"][0]
-    assert isinstance(a, dict) and "name" in a and "affiliations" in a
 
 
 def test_endpoint_cites_url_blocked_path(client, monkeypatch):

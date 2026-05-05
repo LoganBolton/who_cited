@@ -11,16 +11,40 @@ Paste a Google Scholar link, get back every paper that cites it (with authors).
 
 > Note: Semantic Scholar's citation count can differ from Google Scholar's — GS tends to report higher numbers because it includes preprints, theses, and books that S2 may miss.
 
-## Run it locally
+## Install and run with uv
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+uv sync
+uv run python app.py
 ```
 
 Then open http://127.0.0.1:5000.
+
+## Running over SSH
+
+The Flask app binds to `127.0.0.1:5000` on the remote machine. If you are
+SSH'd into the machine, start the app there:
+
+```bash
+cd /path/to/who_cited
+uv sync
+uv run python app.py
+```
+
+In a second terminal on your local machine, forward port 5000:
+
+```bash
+ssh -L 5000:127.0.0.1:5000 your-user@your-server
+```
+
+Then open http://127.0.0.1:5000 in your local browser.
+
+## Run tests
+
+```bash
+uv sync --extra dev
+uv run pytest
+```
 
 ## Project layout
 
@@ -29,7 +53,8 @@ app.py                  Flask backend + Semantic Scholar lookup
 templates/index.html    Single-page UI
 static/style.css        Styling
 static/script.js        Frontend logic
-requirements.txt        Python deps
+pyproject.toml          Python deps and project metadata
+uv.lock                 Locked dependency versions
 ```
 
 ## Limitations

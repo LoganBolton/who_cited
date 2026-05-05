@@ -44,34 +44,21 @@ def _captcha_warning(fetched: int, total: int | None = None) -> str:
     )
     return (
         prefix +
-        "Options: paste GS cookies (NID/__Secure-3PSID) from your logged-in browser, "
-        "set SERPAPI_KEY, or paste the saved HTML below."
+        "Set SERPAPI_KEY in the server environment, restart the app, and check the "
+        "SerpApi account has remaining searches."
     )
 
 
 # ---------- request handlers --------------------------------------------------
 
-def _handle_pasted_html(html: str, *, enrich: bool, original_url: str) -> dict:
-    result = gs.parse_pasted_html(html)
-    _maybe_enrich(result["papers"], enrich)
-    return {
-        "source": "pasted_html",
-        "paper": _empty_paper("Citing papers (from pasted HTML)", original_url),
-        "citations": result["papers"],
-        "count": result["fetched"],
-        "total": result["total"],
-        "blocked": False,
-    }
-
-
 def _handle_cites_url(
-    cites_ids: list[str], url: str, cookies: str, *, enrich: bool
+    cites_ids: list[str], url: str, *, enrich: bool
 ) -> dict:
     # Prefer SerpApi when configured (it handles CAPTCHAs); fall through on miss.
     result = serpapi_client.fetch_cites(cites_ids)
     source = "serpapi"
     if result is None or (result["fetched"] == 0 and not result["total"]):
-        result = gs.scrape_cites(cites_ids, cookie_string=cookies)
+        result = gs.scrape_cites(cites_ids)
         source = "google_scholar"
 
     _maybe_enrich(result["papers"], enrich)
@@ -144,21 +131,16 @@ def api_citations():
     payload = request.get_json(silent=True) or {}
     url = (payload.get("url") or "").strip()
     title_override = (payload.get("title") or "").strip()
-    cookies = (payload.get("cookies") or "").strip()
-    pasted_html = (payload.get("html") or "").strip()
     enrich = bool(payload.get("enrich_affiliations", True))
-
-    if pasted_html:
-        return jsonify(_handle_pasted_html(pasted_html, enrich=enrich, original_url=url))
 
     if not url and not title_override:
         return jsonify({"error": "Provide a Google Scholar URL or a paper title."}), 400
 
     cites_ids = gs.extract_cites_ids(url) if url else None
     if not cites_ids and url:
-        cites_ids = gs.extract_cites_ids_from_citation_page(url, cookie_string=cookies)
+        cites_ids = gs.extract_cites_ids_from_citation_page(url)
     if cites_ids:
-        return jsonify(_handle_cites_url(cites_ids, url, cookies, enrich=enrich))
+        return jsonify(_handle_cites_url(cites_ids, url, enrich=enrich))
 
     title, err = _resolve_title(url, title_override)
     if err is not None:
