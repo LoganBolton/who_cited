@@ -16,8 +16,12 @@ const paperCountEl = document.getElementById("paper-count");
 const visibleCountEl = document.getElementById("visible-count");
 const totalSuffixEl = document.getElementById("total-suffix");
 let personRows = [];
+let loadingTimer = null;
+let loadingStartedAt = 0;
+let loadingContext = null;
 
 function setStatus(text, kind = "info") {
+  stopLoadingProgress();
   if (!text) {
     statusBox.hidden = true;
     statusBox.textContent = "";
@@ -26,6 +30,111 @@ function setStatus(text, kind = "info") {
   statusBox.hidden = false;
   statusBox.className = `status ${kind}`;
   statusBox.textContent = text;
+}
+
+function stopLoadingProgress() {
+  if (loadingTimer) {
+    clearInterval(loadingTimer);
+    loadingTimer = null;
+  }
+}
+
+function loadingSteps(context) {
+  const resolveLabel = context.url
+    ? "Resolving Google Scholar citation cluster"
+    : "Finding the paper on Semantic Scholar";
+  return [
+    {
+      at: 0,
+      label: "Preparing request",
+      detail: context.title ? `Search target: ${context.title}` : "Using the Scholar URL from the form.",
+    },
+    {
+      at: 1.2,
+      label: resolveLabel,
+      detail: context.url
+        ? "If this is a profile article page, the server extracts its Cited by link first."
+        : "The server looks up the title and gets the paper identifier before fetching citations.",
+    },
+    {
+      at: 3,
+      label: "Fetching citing papers",
+      detail: "SerpApi is used when configured; otherwise the server tries direct Scholar fetching and reports blocks.",
+    },
+    {
+      at: 6,
+      label: "Enriching author affiliations",
+      detail: "OpenAlex is checked for institutions attached to authors on the citing papers.",
+    },
+    {
+      at: 9,
+      label: "Preparing spreadsheet rows",
+      detail: "Each cited author becomes one searchable table row when the server response returns.",
+    },
+  ];
+}
+
+function stepState(step, index, elapsed, steps) {
+  const next = steps[index + 1];
+  if (elapsed >= step.at && (!next || elapsed < next.at)) return "current";
+  if (elapsed >= step.at) return "done";
+  return "queued";
+}
+
+function renderLoadingProgress() {
+  if (!loadingContext) return;
+  const elapsed = (Date.now() - loadingStartedAt) / 1000;
+  const steps = loadingSteps(loadingContext);
+
+  statusBox.hidden = false;
+  statusBox.className = "status loading";
+  statusBox.textContent = "";
+
+  const header = document.createElement("div");
+  header.className = "loading-head";
+
+  const title = document.createElement("div");
+  title.className = "loading-title";
+  title.textContent = "Working on citations";
+  header.appendChild(title);
+
+  const time = document.createElement("div");
+  time.className = "loading-time";
+  time.textContent = `${Math.floor(elapsed)}s elapsed`;
+  header.appendChild(time);
+  statusBox.appendChild(header);
+
+  const list = document.createElement("ol");
+  list.className = "loading-steps";
+  steps.forEach((step, index) => {
+    const li = document.createElement("li");
+    li.className = stepState(step, index, elapsed, steps);
+
+    const label = document.createElement("span");
+    label.className = "loading-step-label";
+    label.textContent = step.label;
+    li.appendChild(label);
+
+    const detail = document.createElement("span");
+    detail.className = "loading-step-detail";
+    detail.textContent = step.detail;
+    li.appendChild(detail);
+    list.appendChild(li);
+  });
+  statusBox.appendChild(list);
+
+  const note = document.createElement("p");
+  note.className = "loading-note";
+  note.textContent = "Progress updates here are based on the server workflow. Exact paper and author counts appear when the API response finishes.";
+  statusBox.appendChild(note);
+}
+
+function startLoadingProgress(context) {
+  stopLoadingProgress();
+  loadingContext = context;
+  loadingStartedAt = Date.now();
+  renderLoadingProgress();
+  loadingTimer = setInterval(renderLoadingProgress, 1000);
 }
 
 function authorName(a) {
@@ -202,10 +311,6 @@ function setLoading(isLoading) {
 
 async function fetchCitations(activePreset = null) {
   const title = titleInput.value.trim();
-  setStatus(
-    title ? `Looking up "${title}" and fetching citations...` : "Looking up paper and fetching citations...",
-    "info",
-  );
   paperBox.hidden = true;
   resultsBox.hidden = true;
   personRows = [];
@@ -216,6 +321,7 @@ async function fetchCitations(activePreset = null) {
     url: urlInput.value.trim(),
     title,
   };
+  startLoadingProgress(body);
 
   try {
     const res = await fetch("/api/citations", {
@@ -253,6 +359,7 @@ async function fetchCitations(activePreset = null) {
   } catch (err) {
     setStatus(`Network error: ${err.message}`, "error");
   } finally {
+    stopLoadingProgress();
     if (activePreset) activePreset.removeAttribute("aria-busy");
     setLoading(false);
   }
