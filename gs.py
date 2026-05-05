@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import re
 import time
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -47,6 +47,17 @@ def extract_cites_ids(url: str) -> list[str] | None:
         return None
     ids = [chunk.strip() for chunk in raw.split(",") if chunk.strip()]
     return ids or None
+
+
+def extract_cites_ids_from_citation_html(html: str) -> list[str] | None:
+    """Pull cited-by cluster IDs from a GS profile citation detail page."""
+    soup = BeautifulSoup(html, "html.parser")
+    for link in soup.select('a[href*="cites="]'):
+        href = link.get("href") or ""
+        cites_ids = extract_cites_ids(urljoin(GS_BASE, href))
+        if cites_ids:
+            return cites_ids
+    return None
 
 
 def parse_cookie_string(raw: str) -> dict:
@@ -202,6 +213,25 @@ def extract_title_from_citation_page(url: str) -> str | None:
     return None
 
 
+def extract_cites_ids_from_citation_page(
+    url: str,
+    *,
+    cookie_string: str = "",
+) -> list[str] | None:
+    """Fetch a GS profile citation detail page and return its cited-by IDs."""
+    session = requests.Session()
+    cookies = parse_cookie_string(cookie_string)
+    if cookies:
+        session.cookies.update(cookies)
+    try:
+        resp = session.get(url, headers=_headers(), timeout=15)
+    except requests.RequestException:
+        return None
+    if resp.status_code != 200 or is_blocked_html(resp.text):
+        return None
+    return extract_cites_ids_from_citation_html(resp.text)
+
+
 def scrape_cites(
     cites_ids: list[str],
     *,
@@ -251,12 +281,11 @@ def scrape_cites(
         if r.status_code != 200:
             blocked = r.status_code in (403, 429, 503)
             break
+        if total is None:
+            total = total_results(r.text)
         if is_blocked_html(r.text):
             blocked = True
             break
-
-        if total is None:
-            total = total_results(r.text)
 
         page = parse_results_html(r.text)
         if not page:

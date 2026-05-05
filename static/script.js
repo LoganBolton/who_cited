@@ -2,9 +2,12 @@ const form = document.getElementById("search-form");
 const urlInput = document.getElementById("url");
 const titleInput = document.getElementById("title");
 const titleFallback = document.getElementById("title-fallback");
+const cookieFallback = document.getElementById("cookie-fallback");
 const cookiesInput = document.getElementById("cookies");
+const htmlFallback = document.getElementById("html-fallback");
 const htmlInput = document.getElementById("html");
 const submitBtn = document.getElementById("submit-btn");
+const presetButtons = Array.from(document.querySelectorAll("[data-title]"));
 const statusBox = document.getElementById("status");
 const paperBox = document.getElementById("paper");
 const paperTitleEl = document.getElementById("paper-title");
@@ -79,13 +82,18 @@ function buildAuthorsNode(authors, truncated = false) {
   return ul;
 }
 
-function renderPaper(paper) {
+function renderPaper(paper, source) {
+  // Hide the placeholder card for cites/pasted-html paths — the results
+  // header already says "X citing papers" and the placeholder title there
+  // is meaningless ("Cited-by results for N cluster ID(s)").
+  if (!paper || !paper.authors || paper.authors.length === 0) {
+    paperBox.hidden = true;
+    return;
+  }
   paperBox.hidden = false;
   paperTitleEl.textContent = paper.title || "(untitled)";
   const bits = [];
-  if (paper.authors && paper.authors.length) {
-    bits.push(formatAuthors(paper.authors, paper.authors_truncated));
-  }
+  bits.push(formatAuthors(paper.authors, paper.authors_truncated));
   if (paper.year) bits.push(paper.year);
   if (paper.venue) bits.push(paper.venue);
   paperMetaEl.textContent = bits.join(" · ");
@@ -136,16 +144,50 @@ function setTotalSuffix(total, count) {
   }
 }
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  setStatus("Looking up paper and fetching citations…", "info");
+function blockedHelpText(data) {
+  const countText = data.total
+    ? `Google Scholar found ${data.total} citing papers, but blocked the app before it could list them.`
+    : "Google Scholar blocked the app before it could list citing papers.";
+  return [
+    countText,
+    "To continue:",
+    "1. Easiest local fix: open the paper's cited-by page in your browser, solve Scholar's check if shown, then paste your scholar.google.com cookies below and run again.",
+    "2. Most reliable hosted fix: set SERPAPI_KEY on the server and restart the app.",
+    "3. Manual fallback: view source on the Scholar cited-by results page, paste the HTML below, then run again.",
+  ].join("\n");
+}
+
+function showBlockedHelp(data) {
+  if (cookieFallback) cookieFallback.open = true;
+  if (htmlFallback) htmlFallback.open = true;
+  setStatus(blockedHelpText(data), "error");
+  if (cookiesInput && !cookiesInput.value.trim()) {
+    cookiesInput.focus({ preventScroll: true });
+    cookieFallback.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+function setLoading(isLoading) {
+  submitBtn.disabled = isLoading;
+  for (const button of presetButtons) {
+    button.disabled = isLoading;
+  }
+}
+
+async function fetchCitations(activePreset = null) {
+  const title = titleInput.value.trim();
+  setStatus(
+    title ? `Looking up "${title}" and fetching citations...` : "Looking up paper and fetching citations...",
+    "info",
+  );
   paperBox.hidden = true;
   resultsBox.hidden = true;
-  submitBtn.disabled = true;
+  setLoading(true);
+  if (activePreset) activePreset.setAttribute("aria-busy", "true");
 
   const body = {
     url: urlInput.value.trim(),
-    title: titleInput.value.trim(),
+    title,
     cookies: cookiesInput ? cookiesInput.value.trim() : "",
     html: htmlInput ? htmlInput.value.trim() : "",
   };
@@ -165,10 +207,12 @@ form.addEventListener("submit", async (e) => {
     }
 
     setStatus("");
-    renderPaper(data.paper);
+    renderPaper(data.paper, data.source);
     renderCitations(data.citations);
     setTotalSuffix(data.total, data.count);
-    if (data.warning) {
+    if (data.blocked) {
+      showBlockedHelp(data);
+    } else if (data.warning) {
       setStatus(data.warning, data.blocked ? "error" : "info");
     } else if (data.total && data.count < data.total) {
       setStatus(
@@ -184,6 +228,22 @@ form.addEventListener("submit", async (e) => {
   } catch (err) {
     setStatus(`Network error: ${err.message}`, "error");
   } finally {
-    submitBtn.disabled = false;
+    if (activePreset) activePreset.removeAttribute("aria-busy");
+    setLoading(false);
   }
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await fetchCitations();
 });
+
+for (const button of presetButtons) {
+  button.addEventListener("click", async () => {
+    titleInput.value = button.dataset.title || "";
+    urlInput.value = button.dataset.url || "";
+    if (htmlInput) htmlInput.value = "";
+    titleFallback.open = !button.dataset.url;
+    await fetchCitations(button);
+  });
+}

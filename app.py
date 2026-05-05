@@ -36,9 +36,14 @@ def _maybe_enrich(citations: list[dict], enrich: bool) -> None:
         openalex.enrich_authors(citations)
 
 
-def _captcha_warning(fetched: int) -> str:
+def _captcha_warning(fetched: int, total: int | None = None) -> str:
+    prefix = (
+        f"Google Scholar reports {total} citations, but served a CAPTCHA before listing them. "
+        if total and total > fetched
+        else f"Google Scholar served a CAPTCHA after {fetched} results. "
+    )
     return (
-        f"Google Scholar served a CAPTCHA after {fetched} results. "
+        prefix +
         "Options: paste GS cookies (NID/__Secure-3PSID) from your logged-in browser, "
         "set SERPAPI_KEY, or paste the saved HTML below."
     )
@@ -78,7 +83,7 @@ def _handle_cites_url(
         "count": result["fetched"],
         "total": result["total"],
         "blocked": result["blocked"],
-        "warning": _captcha_warning(result["fetched"]) if result["blocked"] else None,
+        "warning": _captcha_warning(result["fetched"], result["total"]) if result["blocked"] else None,
     }
 
 
@@ -150,6 +155,8 @@ def api_citations():
         return jsonify({"error": "Provide a Google Scholar URL or a paper title."}), 400
 
     cites_ids = gs.extract_cites_ids(url) if url else None
+    if not cites_ids and url:
+        cites_ids = gs.extract_cites_ids_from_citation_page(url, cookie_string=cookies)
     if cites_ids:
         return jsonify(_handle_cites_url(cites_ids, url, cookies, enrich=enrich))
 

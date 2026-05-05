@@ -51,6 +51,21 @@ def test_extract_cites_ids_negative(url):
     assert gs.extract_cites_ids(url) is None
 
 
+def test_extract_cites_ids_from_citation_html():
+    html = """
+    <html>
+      <body>
+        <a href="/scholar?oi=bibs&hl=en&cites=12345,67890&as_sdt=5">Cited by 186</a>
+      </body>
+    </html>
+    """
+    assert gs.extract_cites_ids_from_citation_html(html) == ["12345", "67890"]
+
+
+def test_extract_cites_ids_from_citation_html_returns_none_when_absent():
+    assert gs.extract_cites_ids_from_citation_html("<html><body>No cites link</body></html>") is None
+
+
 # ---------- gs.parse_results_html ---------------------------------------------
 
 def test_parse_results_basic_fields():
@@ -335,3 +350,29 @@ def test_endpoint_cites_url_success_path(client, monkeypatch):
     assert body["blocked"] is False
     assert body["citations"][0]["title"] == "Paper A"
     assert body["citations"][0]["authors"][0] == {"name": "X Y", "affiliations": []}
+
+
+def test_endpoint_profile_citation_url_uses_gs_cited_by_link(client, monkeypatch):
+    monkeypatch.setattr(gs, "extract_cites_ids_from_citation_page", lambda *_a, **_kw: ["789"])
+    monkeypatch.setattr(gs, "scrape_cites", lambda *_a, **_kw: {
+        "papers": [{
+            "title": "Paper B", "url": "https://y",
+            "authors": [{"name": "A B", "affiliations": []}],
+            "authors_truncated": False, "year": 2025, "venue": "venue",
+        }],
+        "total": 186, "fetched": 1, "blocked": False,
+    })
+    monkeypatch.setattr(serpapi_client, "fetch_cites", lambda *_a, **_kw: None)
+    monkeypatch.setattr(s2, "find_paper", lambda *_a, **_kw: pytest.fail("Should not use S2 fallback"))
+
+    r = client.post("/api/citations", json={
+        "url": "https://scholar.google.com/citations?view_op=view_citation&user=abc&citation_for_view=abc:def",
+        "enrich_affiliations": False,
+    })
+
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["source"] == "google_scholar"
+    assert body["count"] == 1
+    assert body["total"] == 186
+    assert body["citations"][0]["title"] == "Paper B"

@@ -3,70 +3,110 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>who_cited — find papers that cite a Google Scholar article</title>
+  <title>who_cited — every paper that cites yours</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <main class="wrap">
     <header>
-      <h1>who_cited</h1>
-      <p class="sub">Paste a Google Scholar link. See every paper that cites it, with authors.</p>
+      <p class="kicker">scholar tools <span class="dot"></span> v0.1</p>
+      <h1>who <em>cited</em> what.</h1>
+      <p class="sub">
+        Drop in a Google Scholar link. Get every paper that cites it,
+        each author, and where they work.
+      </p>
     </header>
 
     <form id="search-form">
-      <label for="url">Google Scholar URL</label>
-      <input
-        id="url"
-        name="url"
-        type="url"
-        placeholder="https://scholar.google.com/scholar?cites=… or …view_op=view_citation…"
-        autocomplete="off"
-      />
-      <details id="title-fallback">
-        <summary>Or paste the paper title directly</summary>
-        <input id="title" name="title" type="text" placeholder="Paper title" autocomplete="off" />
-      </details>
-      <details id="cookie-fallback">
-        <summary>Stuck on a CAPTCHA? Paste your Google Scholar cookies</summary>
+      <div class="field">
+        <label for="url">scholar URL</label>
         <input
-          id="cookies"
-          name="cookies"
-          type="text"
-          placeholder="NID=...; __Secure-3PSID=...; __Secure-3PAPISID=...; (from a logged-in browser tab)"
+          id="url"
+          name="url"
+          type="url"
+          placeholder="scholar.google.com/scholar?cites=…"
           autocomplete="off"
         />
-        <p class="muted">DevTools → Application → Cookies → scholar.google.com. Copy as a single header string.</p>
+      </div>
+
+      <details id="title-fallback">
+        <summary>paste a paper title instead</summary>
+        <div class="field" style="margin-top: 8px;">
+          <input id="title" name="title" type="text" placeholder="Attention Is All You Need" autocomplete="off" />
+        </div>
       </details>
+
+      <section class="presets" aria-labelledby="presets-label">
+        <p id="presets-label">try a common paper</p>
+        <div class="preset-buttons">
+          <button
+            type="button"
+            data-title="HoT: Highlighted Chain of Thought for Referencing Supporting Facts from Inputs"
+            data-url="https://scholar.google.com/scholar_lookup?arxiv_id=2503.02003&amp;hl=en"
+          >HoT</button>
+          <button type="button" data-title="Attention Is All You Need">Attention Is All You Need</button>
+          <button type="button" data-title="BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding">BERT</button>
+          <button type="button" data-title="Deep Residual Learning for Image Recognition">ResNet</button>
+          <button type="button" data-title="ImageNet Classification with Deep Convolutional Neural Networks">AlexNet</button>
+          <button type="button" data-title="Generative Adversarial Nets">GANs</button>
+          <button type="button" data-title="Adam: A Method for Stochastic Optimization">Adam</button>
+        </div>
+      </section>
+
+      <details id="cookie-fallback">
+        <summary>scholar cookies (use when blocked)</summary>
+        <div class="field" style="margin-top: 8px;">
+          <input
+            id="cookies"
+            name="cookies"
+            type="text"
+            placeholder="NID=…; __Secure-3PSID=…"
+            autocomplete="off"
+          />
+        </div>
+        <p class="muted">DevTools → Application → Cookies → scholar.google.com. Paste as one header string.</p>
+      </details>
+
       <details id="html-fallback">
-        <summary>Or paste saved HTML from one or more results pages</summary>
-        <textarea
-          id="html"
-          name="html"
-          rows="6"
-          placeholder="View source of scholar.google.com/scholar?cites=… and paste here. Concatenate multiple pages for more results."
-        ></textarea>
+        <summary>paste saved HTML</summary>
+        <div class="field" style="margin-top: 8px;">
+          <textarea
+            id="html"
+            name="html"
+            rows="6"
+            placeholder="view-source of scholar.google.com/scholar?cites=… — concatenate multiple pages for more results"
+          ></textarea>
+        </div>
         <p class="muted">Foolproof fallback when GS blocks the scraper.</p>
       </details>
-      <button type="submit" id="submit-btn">Find citations</button>
+
+      <button type="submit" id="submit-btn">find citations</button>
     </form>
 
     <section id="status" class="status" hidden></section>
 
     <section id="paper" class="paper" hidden>
       <h2 id="paper-title"></h2>
-      <p id="paper-meta" class="muted"></p>
+      <p id="paper-meta"></p>
     </section>
 
     <section id="results" hidden>
-      <h3><span id="count">0</span> citing papers <span id="total-suffix" class="muted"></span></h3>
+      <h3>
+        <span id="count">0</span>
+        <span>citing papers</span>
+        <span id="total-suffix"></span>
+      </h3>
       <ol id="results-list"></ol>
     </section>
 
     <footer>
-      <p class="muted">
-        Citation data via the
-        <a href="https://api.semanticscholar.org/" target="_blank" rel="noreferrer">Semantic Scholar API</a>.
-        Counts may differ from Google Scholar's tally.
+      <p>
+        Citations via
+        <a href="https://api.semanticscholar.org/" target="_blank" rel="noreferrer">Semantic Scholar</a>
+        &nbsp;·&nbsp; Affiliations via
+        <a href="https://openalex.org/" target="_blank" rel="noreferrer">OpenAlex</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/LoganBolton/who_cited" target="_blank" rel="noreferrer">source</a>
       </p>
     </footer>
   </main>
