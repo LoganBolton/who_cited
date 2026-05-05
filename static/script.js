@@ -9,9 +9,13 @@ const paperBox = document.getElementById("paper");
 const paperTitleEl = document.getElementById("paper-title");
 const paperMetaEl = document.getElementById("paper-meta");
 const resultsBox = document.getElementById("results");
-const resultsList = document.getElementById("results-list");
+const peopleFilter = document.getElementById("people-filter");
+const peopleBody = document.getElementById("people-body");
 const countEl = document.getElementById("count");
+const paperCountEl = document.getElementById("paper-count");
+const visibleCountEl = document.getElementById("visible-count");
 const totalSuffixEl = document.getElementById("total-suffix");
+let personRows = [];
 
 function setStatus(text, kind = "info") {
   if (!text) {
@@ -41,43 +45,6 @@ function formatAuthors(authors, truncated = false) {
   return truncated ? `${joined}, and others` : joined;
 }
 
-function buildAuthorsNode(authors, truncated = false) {
-  const ul = document.createElement("ul");
-  ul.className = "author-list";
-  if (!authors || authors.length === 0) {
-    const li = document.createElement("li");
-    li.className = "author muted";
-    li.textContent = "(unknown authors)";
-    ul.appendChild(li);
-    return ul;
-  }
-  for (const a of authors) {
-    const li = document.createElement("li");
-    li.className = "author";
-    const nameEl = document.createElement("span");
-    nameEl.className = "author-name";
-    nameEl.textContent = authorName(a);
-    li.appendChild(nameEl);
-
-    const affs = authorAffiliations(a);
-    if (affs.length) {
-      const affEl = document.createElement("span");
-      affEl.className = "author-affil";
-      affEl.textContent = affs.join("; ");
-      affEl.title = affs.join("\n");
-      li.appendChild(affEl);
-    }
-    ul.appendChild(li);
-  }
-  if (truncated) {
-    const li = document.createElement("li");
-    li.className = "author author-more";
-    li.textContent = "…and others";
-    ul.appendChild(li);
-  }
-  return ul;
-}
-
 function renderPaper(paper, source) {
   // Hide the placeholder card for cites/pasted-html paths — the results
   // header already says "X citing papers" and the placeholder title there
@@ -95,39 +62,111 @@ function renderPaper(paper, source) {
   paperMetaEl.textContent = bits.join(" · ");
 }
 
-function renderCitations(citations) {
-  resultsList.innerHTML = "";
-  for (const c of citations) {
-    const li = document.createElement("li");
-
-    const titleEl = document.createElement("a");
-    titleEl.className = "title";
-    titleEl.textContent = c.title;
-    if (c.url) {
-      titleEl.href = c.url;
-      titleEl.target = "_blank";
-      titleEl.rel = "noreferrer";
-    }
-    li.appendChild(titleEl);
-
-    const authorsEl = document.createElement("div");
-    authorsEl.className = "authors";
-    authorsEl.appendChild(buildAuthorsNode(c.authors, c.authors_truncated));
-    li.appendChild(authorsEl);
-
-    const metaBits = [];
-    if (c.year) metaBits.push(c.year);
-    if (c.venue) metaBits.push(c.venue);
-    if (metaBits.length) {
-      const metaEl = document.createElement("div");
-      metaEl.className = "meta";
-      metaEl.textContent = metaBits.join(" · ");
-      li.appendChild(metaEl);
-    }
-
-    resultsList.appendChild(li);
+function citationToPersonRows(citation, paperIndex) {
+  const authors = citation.authors && citation.authors.length ? citation.authors : [null];
+  const rows = authors.map((author, authorIndex) => {
+    const affiliations = authorAffiliations(author);
+    const affiliationText = affiliations.length ? affiliations.join("; ") : "";
+    const name = authorName(author) || "(unknown author)";
+    const row = {
+      name,
+      affiliation: affiliationText,
+      title: citation.title || "(untitled)",
+      url: citation.url || "",
+      year: citation.year || "",
+      venue: citation.venue || "",
+      paperIndex,
+      authorIndex,
+    };
+    row.searchText = [
+      row.name,
+      row.affiliation,
+      row.title,
+      row.year,
+      row.venue,
+    ].join(" ").toLowerCase();
+    return row;
+  });
+  if (citation.authors_truncated) {
+    rows.push({
+      name: "and others",
+      affiliation: "",
+      title: citation.title || "(untitled)",
+      url: citation.url || "",
+      year: citation.year || "",
+      venue: citation.venue || "",
+      paperIndex,
+      authorIndex: rows.length,
+      searchText: ["and others", citation.title, citation.year, citation.venue].join(" ").toLowerCase(),
+    });
   }
-  countEl.textContent = citations.length.toString();
+  return rows;
+}
+
+function makeCell(text, className = "") {
+  const td = document.createElement("td");
+  if (className) td.className = className;
+  td.textContent = text || "";
+  return td;
+}
+
+function makePaperCell(row) {
+  const td = document.createElement("td");
+  td.className = "paper-cell";
+  if (row.url) {
+    const a = document.createElement("a");
+    a.href = row.url;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.textContent = row.title;
+    td.appendChild(a);
+  } else {
+    td.textContent = row.title;
+  }
+  return td;
+}
+
+function renderPersonRows(rows) {
+  peopleBody.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.className = "muted-cell empty-table-cell";
+    td.colSpan = 5;
+    td.textContent = "No people match this filter.";
+    tr.appendChild(td);
+    fragment.appendChild(tr);
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(makeCell(row.name, "person-cell"));
+    tr.appendChild(makeCell(row.affiliation || "-", row.affiliation ? "affiliation-cell" : "affiliation-cell muted-cell"));
+    tr.appendChild(makePaperCell(row));
+    tr.appendChild(makeCell(row.year, "year-cell"));
+    tr.appendChild(makeCell(row.venue, "venue-cell"));
+    fragment.appendChild(tr);
+  }
+  peopleBody.appendChild(fragment);
+  visibleCountEl.textContent = rows.length === personRows.length
+    ? `${rows.length} rows`
+    : `${rows.length} of ${personRows.length} rows`;
+}
+
+function applyPeopleFilter() {
+  const query = (peopleFilter.value || "").trim().toLowerCase();
+  const filtered = query
+    ? personRows.filter((row) => row.searchText.includes(query))
+    : personRows;
+  renderPersonRows(filtered);
+}
+
+function renderCitations(citations) {
+  personRows = citations.flatMap((citation, index) => citationToPersonRows(citation, index));
+  if (peopleFilter) peopleFilter.value = "";
+  countEl.textContent = personRows.length.toString();
+  paperCountEl.textContent = `${citations.length} citing ${citations.length === 1 ? "paper" : "papers"}`;
+  renderPersonRows(personRows);
   resultsBox.hidden = false;
 }
 
@@ -169,6 +208,7 @@ async function fetchCitations(activePreset = null) {
   );
   paperBox.hidden = true;
   resultsBox.hidden = true;
+  personRows = [];
   setLoading(true);
   if (activePreset) activePreset.setAttribute("aria-busy", "true");
 
@@ -230,4 +270,8 @@ for (const button of presetButtons) {
     titleFallback.open = !button.dataset.url;
     await fetchCitations(button);
   });
+}
+
+if (peopleFilter) {
+  peopleFilter.addEventListener("input", applyPeopleFilter);
 }

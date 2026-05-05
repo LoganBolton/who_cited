@@ -66,10 +66,34 @@
     <section id="results" hidden>
       <h3>
         <span id="count">0</span>
-        <span>citing papers</span>
+        <span>people</span>
+        <span id="paper-count">0 citing papers</span>
         <span id="total-suffix"></span>
       </h3>
-      <ol id="results-list"></ol>
+      <div class="result-tools">
+        <label for="people-filter">filter people, affiliations, papers</label>
+        <input
+          id="people-filter"
+          type="search"
+          placeholder="Search Stanford, Google, Nguyen, chain of thought..."
+          autocomplete="off"
+        />
+        <span id="visible-count"></span>
+      </div>
+      <div class="people-table-wrap">
+        <table class="people-table">
+          <thead>
+            <tr>
+              <th scope="col">Person</th>
+              <th scope="col">Affiliation</th>
+              <th scope="col">Citing paper</th>
+              <th scope="col">Year</th>
+              <th scope="col">Venue</th>
+            </tr>
+          </thead>
+          <tbody id="people-body"></tbody>
+        </table>
+      </div>
     </section>
 
     <footer>
