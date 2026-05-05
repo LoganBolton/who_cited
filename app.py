@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import random
 import re
@@ -12,8 +13,11 @@ app = Flask(__name__)
 
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
 S2_FIELDS = "title,authors,year,venue,externalIds,url"
+S2_FIELDS_WITH_AFFIL = "title,authors.name,authors.affiliations,year,venue,externalIds,url"
 S2_API_KEY = os.environ.get("S2_API_KEY", "").strip()
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "").strip()
+OPENALEX_MAILTO = os.environ.get("OPENALEX_MAILTO", "").strip()
+OPENALEX_BASE = "https://api.openalex.org/works"
 
 GS_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -74,7 +78,7 @@ _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 
 def _parse_author_line(line: str) -> dict:
     line = re.sub(r"\s+", " ", line).strip()
-    info: dict = {"authors": [], "venue": "", "year": None}
+    info: dict = {"authors": [], "venue": "", "year": None, "authors_truncated": False}
     if not line:
         return info
 
@@ -93,13 +97,24 @@ def _parse_author_line(line: str) -> dict:
         author_part = line
 
     raw_authors = re.split(r",\s*", author_part)
-    cleaned = []
+    cleaned: list[str] = []
+    truncated = False
     for a in raw_authors:
-        a = a.strip().rstrip("…").strip()
-        if not a or a == "…":
+        a = a.strip()
+        # GS appends "…" (or "...") to indicate the list was truncated. It usually
+        # appears as a standalone trailing entry, but sometimes attached to the
+        # last visible name.
+        if a in ("…", "...", ""):
+            truncated = truncated or a in ("…", "...")
             continue
+        if a.endswith("…") or a.endswith("..."):
+            truncated = True
+            a = a.rstrip("…").rstrip(".").strip()
+            if not a:
+                continue
         cleaned.append(a)
     info["authors"] = cleaned
+    info["authors_truncated"] = truncated
     return info
 
 
@@ -123,7 +138,8 @@ def parse_gs_results_html(html: str) -> list[dict]:
         out.append({
             "title": title,
             "url": href or "",
-            "authors": info["authors"],
+            "authors": [{"name": n, "affiliations": []} for n in info["authors"]],
+            "authors_truncated": info["authors_truncated"],
             "year": info["year"],
             "venue": info["venue"],
         })
@@ -302,7 +318,8 @@ def serpapi_fetch_cites(cites_ids: list[str], *, max_results: int = 500) -> dict
             papers.append({
                 "title": title,
                 "url": entry.get("link") or "",
-                "authors": authors,
+                "authors": [{"name": n, "affiliations": []} for n in authors],
+                "authors_truncated": False,  # SerpApi returns the full list
                 "year": year,
                 "venue": venue,
             })
@@ -329,6 +346,120 @@ def parse_pasted_html(html_blob: str) -> dict:
         seen.add(key)
         papers.append(p)
     return {"papers": papers, "total": total, "fetched": len(papers), "blocked": False}
+
+
+def _name_initial_last(name: str) -> tuple[str, str]:
+    """Reduce a person name to (first-initial, lower-cased last name).
+
+    A single-token name is treated as last-name-only (no initial), so a
+    GS entry like 'Bai' matches an OpenAlex 'Shuai Bai' on last name alone.
+    """
+    cleaned = re.sub(r"[.,]", " ", name).strip()
+    parts = [p for p in cleaned.split() if p]
+    if not parts:
+        return ("", "")
+    last = parts[-1].lower()
+    if len(parts) == 1:
+        return ("", last)
+    return (parts[0][0].lower(), last)
+
+
+def _author_name_match(gs_name: str, openalex_name: str) -> bool:
+    g_init, g_last = _name_initial_last(gs_name)
+    o_init, o_last = _name_initial_last(openalex_name)
+    if not g_last or not o_last:
+        return False
+    if g_last != o_last:
+        return False
+    # GS often only gives an initial; tolerate missing first-letter info on either side.
+    if not g_init or not o_init:
+        return True
+    return g_init == o_init
+
+
+def openalex_lookup_authors(title: str, *, timeout: float = 10.0) -> list[dict]:
+    """Search OpenAlex by title; return [{name, affiliations}] for the top hit."""
+    if not title:
+        return []
+    params = {"search": title, "per-page": 1}
+    if OPENALEX_MAILTO:
+        params["mailto"] = OPENALEX_MAILTO
+    try:
+        r = requests.get(OPENALEX_BASE, params=params, timeout=timeout)
+    except requests.RequestException:
+        return []
+    if r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except ValueError:
+        return []
+    results = data.get("results") or []
+    if not results:
+        return []
+    work = results[0]
+    authorships = work.get("authorships") or []
+    out: list[dict] = []
+    for a in authorships:
+        au = a.get("author") or {}
+        name = (au.get("display_name") or "").strip()
+        if not name:
+            continue
+        seen: set[str] = set()
+        affs: list[str] = []
+        for inst in (a.get("institutions") or []):
+            disp = (inst.get("display_name") or "").strip()
+            if disp and disp.lower() not in seen:
+                seen.add(disp.lower())
+                affs.append(disp)
+        # Only fall back to raw affiliation strings if structured ones are missing.
+        if not affs:
+            for raw in (a.get("raw_affiliation_strings") or []):
+                if not raw:
+                    continue
+                raw = raw.strip()
+                if raw.lower() in seen:
+                    continue
+                seen.add(raw.lower())
+                affs.append(raw)
+        out.append({"name": name, "affiliations": affs})
+    return out
+
+
+def enrich_authors_with_openalex(
+    citations: list[dict],
+    *,
+    max_workers: int = 8,
+    overall_timeout: float = 45.0,
+) -> list[dict]:
+    """Look up each citation on OpenAlex in parallel; attach affiliations to each author.
+
+    Mutates each citation's `authors` entries in place by setting `affiliations`.
+    """
+    if not citations:
+        return citations
+
+    def _one(c: dict) -> tuple[dict, list[dict]]:
+        return c, openalex_lookup_authors(c.get("title") or "")
+
+    deadline = time.monotonic() + overall_timeout
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_one, c): c for c in citations}
+        for fut in concurrent.futures.as_completed(futures):
+            if time.monotonic() > deadline:
+                break
+            try:
+                c, oa_authors = fut.result()
+            except Exception:
+                continue
+            for author in c.get("authors") or []:
+                if author.get("affiliations"):
+                    continue
+                for oa in oa_authors:
+                    if _author_name_match(author["name"], oa["name"]):
+                        author["affiliations"] = oa["affiliations"]
+                        break
+    return citations
 
 
 def _title_variants(title: str) -> list[str]:
@@ -384,7 +515,7 @@ def s2_fetch_all_citations(paper_id: str, max_pages: int = 20) -> list[dict]:
     for _ in range(max_pages):
         r = _s2_get(
             f"/paper/{paper_id}/citations",
-            {"fields": S2_FIELDS, "limit": limit, "offset": offset},
+            {"fields": S2_FIELDS_WITH_AFFIL, "limit": limit, "offset": offset},
         )
         if r is None or r.status_code != 200:
             break
@@ -401,10 +532,21 @@ def s2_fetch_all_citations(paper_id: str, max_pages: int = 20) -> list[dict]:
 
 def shape_s2_citation(entry: dict) -> dict:
     paper = entry.get("citingPaper") or {}
-    authors = [a.get("name") for a in (paper.get("authors") or []) if a.get("name")]
+    authors_raw = paper.get("authors") or []
+    authors = []
+    for a in authors_raw:
+        name = a.get("name")
+        if not name:
+            continue
+        affs = []
+        for aff in (a.get("affiliations") or []):
+            if isinstance(aff, str) and aff.strip():
+                affs.append(aff.strip())
+        authors.append({"name": name, "affiliations": affs})
     return {
         "title": paper.get("title") or "(untitled)",
         "authors": authors,
+        "authors_truncated": False,  # S2 returns the full author list
         "year": paper.get("year"),
         "venue": paper.get("venue") or "",
         "url": paper.get("url") or "",
@@ -424,9 +566,13 @@ def api_citations():
     cookie_string = (payload.get("cookies") or "").strip()
     pasted_html = (payload.get("html") or "").strip()
 
+    enrich = payload.get("enrich_affiliations", True)
+
     # Path 0: user pasted GS results HTML directly (escape hatch when blocked).
     if pasted_html:
         result = parse_pasted_html(pasted_html)
+        if enrich:
+            enrich_authors_with_openalex(result["papers"])
         return jsonify({
             "source": "pasted_html",
             "paper": {
@@ -453,6 +599,9 @@ def api_citations():
             # Fall through to direct scraping.
             result = scrape_gs_cites(cites_ids, cookie_string=cookie_string)
             used = "google_scholar"
+
+        if enrich:
+            enrich_authors_with_openalex(result["papers"])
 
         # Always return whatever we got — partial is better than nothing.
         warning = None
@@ -501,6 +650,8 @@ def api_citations():
     paper_id = paper.get("paperId")
     raw = s2_fetch_all_citations(paper_id)
     citations = [shape_s2_citation(c) for c in raw]
+    if enrich:
+        enrich_authors_with_openalex(citations)
 
     return jsonify({
         "source": "semantic_scholar",

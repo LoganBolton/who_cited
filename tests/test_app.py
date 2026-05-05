@@ -11,11 +11,15 @@ import pytest
 import app
 from app import (
     app as flask_app,
+    enrich_authors_with_openalex,
     extract_cites_ids,
     gs_total_results,
     is_blocked_html,
     parse_gs_results_html,
     parse_pasted_html,
+    shape_s2_citation,
+    _author_name_match,
+    _name_initial_last,
     _parse_author_line,
     _parse_cookie_string,
     _title_variants,
@@ -76,6 +80,12 @@ def test_parse_results_basic_fields():
     assert first["year"] == 2025
     assert first["url"].startswith("https://arxiv.org/abs/")
     assert isinstance(first["authors"], list) and len(first["authors"]) >= 3
+    # Real GS results pages always truncate the author list — we should detect it.
+    assert first["authors_truncated"] is True
+    # Authors are shape-stable dicts even before enrichment.
+    a = first["authors"][0]
+    assert isinstance(a, dict) and "name" in a and "affiliations" in a
+    assert a["affiliations"] == []
 
 
 def test_parse_results_all_have_titles_and_authors():
@@ -83,6 +93,8 @@ def test_parse_results_all_have_titles_and_authors():
     for r in rows:
         assert r["title"]
         assert isinstance(r["authors"], list)
+        for a in r["authors"]:
+            assert isinstance(a, dict) and "name" in a and "affiliations" in a
         # Year should either be None or a sane 4-digit int
         assert r["year"] is None or 1900 <= r["year"] <= 2100
 
@@ -129,16 +141,32 @@ def test_author_line_typical():
     assert "arXiv preprint" in info["venue"]
     assert info["authors"][:3] == ["S Bai", "Y Cai", "R Chen"]
     assert "…" not in "".join(info["authors"])
+    assert info["authors_truncated"] is True
 
 
 def test_author_line_no_year():
     info = _parse_author_line("J Doe, A Smith - Some Venue - host.example")
     assert info["year"] is None
     assert info["authors"] == ["J Doe", "A Smith"]
+    assert info["authors_truncated"] is False
 
 
 def test_author_line_empty():
-    assert _parse_author_line("") == {"authors": [], "venue": "", "year": None}
+    assert _parse_author_line("") == {
+        "authors": [], "venue": "", "year": None, "authors_truncated": False,
+    }
+
+
+def test_author_line_truncation_attached_to_last_name():
+    info = _parse_author_line("J Doe, A Smith… - 2024 - host.example")
+    assert info["authors"] == ["J Doe", "A Smith"]
+    assert info["authors_truncated"] is True
+
+
+def test_author_line_truncation_three_dots():
+    info = _parse_author_line("J Doe, A Smith, ... - 2024")
+    assert info["authors"] == ["J Doe", "A Smith"]
+    assert info["authors_truncated"] is True
 
 
 # ---------- _parse_cookie_string ----------------------------------------------
@@ -179,6 +207,8 @@ def test_parse_pasted_html_full_pipeline():
     assert out["total"] == 219
     assert out["blocked"] is False
     assert out["papers"][0]["title"] == "Seed1. 5-vl technical report"
+    assert out["papers"][0]["authors"][0]["name"]
+    assert out["papers"][0]["authors"][0]["affiliations"] == []
 
 
 def test_parse_pasted_html_concatenated_pages_are_deduped():
@@ -200,14 +230,104 @@ def test_endpoint_rejects_empty_payload(client):
     assert r.status_code == 400
 
 
-def test_endpoint_pasted_html_path(client):
-    r = client.post("/api/citations", json={"html": RESULTS_HTML})
+def test_endpoint_pasted_html_path(client, monkeypatch):
+    # Disable network enrichment in the endpoint test.
+    monkeypatch.setattr(app, "enrich_authors_with_openalex", lambda c, **kw: c)
+    r = client.post("/api/citations", json={"html": RESULTS_HTML, "enrich_affiliations": False})
     assert r.status_code == 200
     body = r.get_json()
     assert body["source"] == "pasted_html"
     assert body["count"] == 10
     assert body["total"] == 219
     assert body["citations"][0]["title"].startswith("Seed1")
+    a = body["citations"][0]["authors"][0]
+    assert isinstance(a, dict) and "name" in a and "affiliations" in a
+
+
+# ---------- name matching / OpenAlex enrichment ------------------------------
+
+@pytest.mark.parametrize("a, b, expected", [
+    ("S Bai", "Shuai Bai", True),
+    ("S. Bai", "Shuai Bai", True),
+    ("Bai", "Shuai Bai", True),       # missing initial → still match by last
+    ("Shuai Bai", "Bai", True),
+    ("S Bai", "Linfeng Bai", False),  # initial mismatch
+    ("J Doe", "John Smith", False),
+    ("", "John Doe", False),
+])
+def test_author_name_match(a, b, expected):
+    assert _author_name_match(a, b) is expected
+
+
+def test_name_initial_last_handles_punctuation():
+    assert _name_initial_last("S. Bai") == ("s", "bai")
+    assert _name_initial_last("J. Doe, Jr.") == ("j", "jr")  # documented behavior
+    assert _name_initial_last("Bai") == ("", "bai")  # single token → last only
+    assert _name_initial_last("") == ("", "")
+
+
+def test_enrich_authors_attaches_affiliations(monkeypatch):
+    citations = [{
+        "title": "A great paper",
+        "url": "",
+        "authors": [
+            {"name": "S Bai", "affiliations": []},
+            {"name": "Y Cai", "affiliations": []},
+            {"name": "Unknown Person", "affiliations": []},
+        ],
+        "authors_truncated": True,
+        "year": 2024,
+        "venue": "",
+    }]
+
+    def fake_lookup(title, **_kw):
+        assert title == "A great paper"
+        return [
+            {"name": "Shuai Bai", "affiliations": ["Alibaba"]},
+            {"name": "Yong Cai", "affiliations": ["MIT", "Cambridge"]},
+        ]
+
+    monkeypatch.setattr(app, "openalex_lookup_authors", fake_lookup)
+    enrich_authors_with_openalex(citations, max_workers=2)
+
+    authors = citations[0]["authors"]
+    assert authors[0]["affiliations"] == ["Alibaba"]
+    assert authors[1]["affiliations"] == ["MIT", "Cambridge"]
+    assert authors[2]["affiliations"] == []  # no match → left empty
+
+
+def test_enrich_authors_swallows_lookup_errors(monkeypatch):
+    citations = [{
+        "title": "X", "url": "", "authors": [{"name": "A B", "affiliations": []}],
+        "authors_truncated": False, "year": None, "venue": "",
+    }]
+
+    def boom(_title, **_kw):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(app, "openalex_lookup_authors", boom)
+    # Should not raise; affiliations stay empty.
+    enrich_authors_with_openalex(citations, max_workers=2)
+    assert citations[0]["authors"][0]["affiliations"] == []
+
+
+def test_shape_s2_citation_carries_affiliations():
+    out = shape_s2_citation({
+        "citingPaper": {
+            "title": "Paper",
+            "year": 2020,
+            "venue": "X",
+            "url": "https://example.com",
+            "authors": [
+                {"name": "Alice", "affiliations": ["Stanford"]},
+                {"name": "Bob", "affiliations": []},
+            ],
+        }
+    })
+    assert out["authors"] == [
+        {"name": "Alice", "affiliations": ["Stanford"]},
+        {"name": "Bob", "affiliations": []},
+    ]
 
 
 def test_endpoint_cites_url_blocked_path(client, monkeypatch):
@@ -217,9 +337,11 @@ def test_endpoint_cites_url_blocked_path(client, monkeypatch):
 
     monkeypatch.setattr(app, "scrape_gs_cites", fake_scrape)
     monkeypatch.setattr(app, "SERPAPI_KEY", "")  # force serpapi to skip
+    monkeypatch.setattr(app, "enrich_authors_with_openalex", lambda c, **kw: c)
 
     r = client.post("/api/citations", json={
         "url": "https://scholar.google.com/scholar?cites=123,456",
+        "enrich_affiliations": False,
     })
     assert r.status_code == 200
     body = r.get_json()
@@ -232,7 +354,14 @@ def test_endpoint_cites_url_success_path(client, monkeypatch):
     """When scraping succeeds, the endpoint returns the parsed papers."""
     def fake_scrape(*_a, **_kw):
         return {
-            "papers": [{"title": "Paper A", "url": "https://x", "authors": ["X Y"], "year": 2024, "venue": "v"}],
+            "papers": [{
+                "title": "Paper A",
+                "url": "https://x",
+                "authors": [{"name": "X Y", "affiliations": []}],
+                "authors_truncated": False,
+                "year": 2024,
+                "venue": "v",
+            }],
             "total": 219,
             "fetched": 1,
             "blocked": False,
@@ -240,9 +369,11 @@ def test_endpoint_cites_url_success_path(client, monkeypatch):
 
     monkeypatch.setattr(app, "scrape_gs_cites", fake_scrape)
     monkeypatch.setattr(app, "SERPAPI_KEY", "")
+    monkeypatch.setattr(app, "enrich_authors_with_openalex", lambda c, **kw: c)
 
     r = client.post("/api/citations", json={
         "url": "https://scholar.google.com/scholar?cites=123",
+        "enrich_affiliations": False,
     })
     assert r.status_code == 200
     body = r.get_json()
@@ -250,3 +381,4 @@ def test_endpoint_cites_url_success_path(client, monkeypatch):
     assert body["total"] == 219
     assert body["blocked"] is False
     assert body["citations"][0]["title"] == "Paper A"
+    assert body["citations"][0]["authors"][0] == {"name": "X Y", "affiliations": []}

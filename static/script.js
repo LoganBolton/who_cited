@@ -25,17 +25,67 @@ function setStatus(text, kind = "info") {
   statusBox.textContent = text;
 }
 
-function formatAuthors(authors) {
+function authorName(a) {
+  if (a == null) return "";
+  if (typeof a === "string") return a;
+  return a.name || "";
+}
+
+function authorAffiliations(a) {
+  if (a && typeof a === "object" && Array.isArray(a.affiliations)) return a.affiliations;
+  return [];
+}
+
+function formatAuthors(authors, truncated = false) {
   if (!authors || authors.length === 0) return "(unknown authors)";
-  if (authors.length <= 6) return authors.join(", ");
-  return authors.slice(0, 6).join(", ") + ` et al. (+${authors.length - 6})`;
+  const joined = authors.map(authorName).filter(Boolean).join(", ");
+  return truncated ? `${joined}, and others` : joined;
+}
+
+function buildAuthorsNode(authors, truncated = false) {
+  const ul = document.createElement("ul");
+  ul.className = "author-list";
+  if (!authors || authors.length === 0) {
+    const li = document.createElement("li");
+    li.className = "author muted";
+    li.textContent = "(unknown authors)";
+    ul.appendChild(li);
+    return ul;
+  }
+  for (const a of authors) {
+    const li = document.createElement("li");
+    li.className = "author";
+    const nameEl = document.createElement("span");
+    nameEl.className = "author-name";
+    nameEl.textContent = authorName(a);
+    li.appendChild(nameEl);
+
+    const affs = authorAffiliations(a);
+    if (affs.length) {
+      const affEl = document.createElement("span");
+      affEl.className = "author-affil";
+      affEl.textContent = affs.join("; ");
+      affEl.title = affs.join("\n");
+      li.appendChild(affEl);
+    }
+    ul.appendChild(li);
+  }
+  if (truncated) {
+    const li = document.createElement("li");
+    li.className = "author author-more";
+    li.textContent = "…and others";
+    ul.appendChild(li);
+  }
+  return ul;
 }
 
 function renderPaper(paper) {
   paperBox.hidden = false;
   paperTitleEl.textContent = paper.title || "(untitled)";
   const bits = [];
-  if (paper.authors && paper.authors.length) bits.push(formatAuthors(paper.authors));
+  if (paper.authors && paper.authors.length) {
+    bits.push(formatAuthors(paper.authors, paper.authors_truncated));
+  }
   if (paper.year) bits.push(paper.year);
   if (paper.venue) bits.push(paper.venue);
   paperMetaEl.textContent = bits.join(" · ");
@@ -58,7 +108,7 @@ function renderCitations(citations) {
 
     const authorsEl = document.createElement("div");
     authorsEl.className = "authors";
-    authorsEl.textContent = formatAuthors(c.authors);
+    authorsEl.appendChild(buildAuthorsNode(c.authors, c.authors_truncated));
     li.appendChild(authorsEl);
 
     const metaBits = [];
