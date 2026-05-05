@@ -349,7 +349,7 @@ button[type="submit"]:disabled { background: var(--muted); cursor: progress; }
 
 .people-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 1180px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 0.9rem;
@@ -384,15 +384,15 @@ button[type="submit"]:disabled { background: var(--muted); cursor: progress; }
 .people-table tbody tr:hover { background: rgba(31, 77, 143, 0.06); }
 
 .people-table th:nth-child(1),
-.people-table td:nth-child(1) { width: 18%; }
+.people-table td:nth-child(1) { width: 15%; }
 .people-table th:nth-child(2),
-.people-table td:nth-child(2) { width: 24%; }
+.people-table td:nth-child(2) { width: 20%; }
 .people-table th:nth-child(3),
-.people-table td:nth-child(3) { width: 35%; }
+.people-table td:nth-child(3) { width: 38%; }
 .people-table th:nth-child(4),
-.people-table td:nth-child(4) { width: 8%; }
+.people-table td:nth-child(4) { width: 7%; }
 .people-table th:nth-child(5),
-.people-table td:nth-child(5) { width: 15%; }
+.people-table td:nth-child(5) { width: 20%; }
 
 .person-cell {
   color: var(--ink);
@@ -416,6 +416,11 @@ button[type="submit"]:disabled { background: var(--muted); cursor: progress; }
 }
 
 .paper-cell a:hover { text-decoration-color: var(--ink); }
+
+.paper-cell,
+.venue-cell {
+  overflow-wrap: anywhere;
+}
 
 .year-cell {
   font-family: var(--mono);
@@ -476,5 +481,5 @@ footer a:hover { text-decoration-color: var(--ink); }
   .wrap { padding: 40px 18px 64px; }
   .result-tools { grid-template-columns: 1fr; }
   .result-tools #visible-count { padding-bottom: 0; }
-  .people-table { min-width: 760px; }
+  .people-table { min-width: 980px; }
 }
