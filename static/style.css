@@ -51,14 +51,17 @@ label {
   font-weight: 600;
 }
 
-input[type="url"], input[type="text"] {
+input[type="url"], input[type="text"], textarea {
   width: 100%;
   padding: 10px 12px;
   font-size: 1rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  font-family: inherit;
 }
+
+textarea { resize: vertical; min-height: 80px; }
 
 input:focus {
   outline: 2px solid var(--accent);

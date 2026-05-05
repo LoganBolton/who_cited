@@ -2,6 +2,8 @@ const form = document.getElementById("search-form");
 const urlInput = document.getElementById("url");
 const titleInput = document.getElementById("title");
 const titleFallback = document.getElementById("title-fallback");
+const cookiesInput = document.getElementById("cookies");
+const htmlInput = document.getElementById("html");
 const submitBtn = document.getElementById("submit-btn");
 const statusBox = document.getElementById("status");
 const paperBox = document.getElementById("paper");
@@ -10,6 +12,7 @@ const paperMetaEl = document.getElementById("paper-meta");
 const resultsBox = document.getElementById("results");
 const resultsList = document.getElementById("results-list");
 const countEl = document.getElementById("count");
+const totalSuffixEl = document.getElementById("total-suffix");
 
 function setStatus(text, kind = "info") {
   if (!text) {
@@ -74,6 +77,15 @@ function renderCitations(citations) {
   resultsBox.hidden = false;
 }
 
+function setTotalSuffix(total, count) {
+  if (!totalSuffixEl) return;
+  if (total && total > count) {
+    totalSuffixEl.textContent = `(of ${total} on Google Scholar)`;
+  } else {
+    totalSuffixEl.textContent = "";
+  }
+}
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   setStatus("Looking up paper and fetching citations…", "info");
@@ -84,6 +96,8 @@ form.addEventListener("submit", async (e) => {
   const body = {
     url: urlInput.value.trim(),
     title: titleInput.value.trim(),
+    cookies: cookiesInput ? cookiesInput.value.trim() : "",
+    html: htmlInput ? htmlInput.value.trim() : "",
   };
 
   try {
@@ -103,9 +117,17 @@ form.addEventListener("submit", async (e) => {
     setStatus("");
     renderPaper(data.paper);
     renderCitations(data.citations);
-    if (data.count === 0) {
+    setTotalSuffix(data.total, data.count);
+    if (data.warning) {
+      setStatus(data.warning, data.blocked ? "error" : "info");
+    } else if (data.total && data.count < data.total) {
       setStatus(
-        "Semantic Scholar returned 0 citations for this paper. Its count may lag Google Scholar's.",
+        `Showing ${data.count} of ${data.total} reported by Google Scholar.`,
+        "info",
+      );
+    } else if (data.count === 0) {
+      setStatus(
+        "Returned 0 citations. The paper may not be indexed, or GS blocked the scraper.",
         "info",
       );
     }

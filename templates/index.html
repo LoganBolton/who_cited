@@ -19,13 +19,33 @@
         id="url"
         name="url"
         type="url"
-        placeholder="https://scholar.google.com/citations?view_op=view_citation&..."
+        placeholder="https://scholar.google.com/scholar?cites=… or …view_op=view_citation…"
         autocomplete="off"
-        required
       />
       <details id="title-fallback">
         <summary>Or paste the paper title directly</summary>
         <input id="title" name="title" type="text" placeholder="Paper title" autocomplete="off" />
+      </details>
+      <details id="cookie-fallback">
+        <summary>Stuck on a CAPTCHA? Paste your Google Scholar cookies</summary>
+        <input
+          id="cookies"
+          name="cookies"
+          type="text"
+          placeholder="NID=...; __Secure-3PSID=...; __Secure-3PAPISID=...; (from a logged-in browser tab)"
+          autocomplete="off"
+        />
+        <p class="muted">DevTools → Application → Cookies → scholar.google.com. Copy as a single header string.</p>
+      </details>
+      <details id="html-fallback">
+        <summary>Or paste saved HTML from one or more results pages</summary>
+        <textarea
+          id="html"
+          name="html"
+          rows="6"
+          placeholder="View source of scholar.google.com/scholar?cites=… and paste here. Concatenate multiple pages for more results."
+        ></textarea>
+        <p class="muted">Foolproof fallback when GS blocks the scraper.</p>
       </details>
       <button type="submit" id="submit-btn">Find citations</button>
     </form>
@@ -38,7 +58,7 @@
     </section>
 
     <section id="results" hidden>
-      <h3><span id="count">0</span> citing papers</h3>
+      <h3><span id="count">0</span> citing papers <span id="total-suffix" class="muted"></span></h3>
       <ol id="results-list"></ol>
     </section>
 
