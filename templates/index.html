@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>who_cited — find papers that cite a Google Scholar article</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>who_cited</h1>
+      <p class="sub">Paste a Google Scholar link. See every paper that cites it, with authors.</p>
+    </header>
+
+    <form id="search-form">
+      <label for="url">Google Scholar URL</label>
+      <input
+        id="url"
+        name="url"
+        type="url"
+        placeholder="https://scholar.google.com/citations?view_op=view_citation&..."
+        autocomplete="off"
+        required
+      />
+      <details id="title-fallback">
+        <summary>Or paste the paper title directly</summary>
+        <input id="title" name="title" type="text" placeholder="Paper title" autocomplete="off" />
+      </details>
+      <button type="submit" id="submit-btn">Find citations</button>
+    </form>
+
+    <section id="status" class="status" hidden></section>
+
+    <section id="paper" class="paper" hidden>
+      <h2 id="paper-title"></h2>
+      <p id="paper-meta" class="muted"></p>
+    </section>
+
+    <section id="results" hidden>
+      <h3><span id="count">0</span> citing papers</h3>
+      <ol id="results-list"></ol>
+    </section>
+
+    <footer>
+      <p class="muted">
+        Citation data via the
+        <a href="https://api.semanticscholar.org/" target="_blank" rel="noreferrer">Semantic Scholar API</a>.
+        Counts may differ from Google Scholar's tally.
+      </p>
+    </footer>
+  </main>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
