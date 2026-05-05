@@ -34,6 +34,7 @@ def _empty_paper(title: str, url: str = "") -> dict:
 def _maybe_enrich(citations: list[dict], enrich: bool) -> None:
     if enrich and citations:
         openalex.enrich_authors(citations)
+        serpapi_client.enrich_author_profiles(citations)
 
 
 def _captcha_warning(fetched: int, total: int | None = None) -> str:

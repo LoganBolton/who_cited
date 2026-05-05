@@ -251,6 +251,48 @@ def test_shape_s2_citation_carries_affiliations():
     ]
 
 
+# ---------- serpapi author profile enrichment ---------------------------------
+
+def test_serpapi_author_id_from_author_links():
+    assert serpapi_client._author_id({
+        "link": "https://scholar.google.com/citations?user=abc123&hl=en&oi=sra",
+    }) == "abc123"
+    assert serpapi_client._author_id({
+        "serpapi_scholar_link": "https://serpapi.com/search.json?author_id=xyz789&engine=google_scholar_author",
+    }) == "xyz789"
+
+
+def test_serpapi_shape_author_keeps_scholar_profile_id():
+    out = serpapi_client._shape_author({
+        "name": "S Xie",
+        "link": "https://scholar.google.com/citations?user=abc123&hl=en&oi=sra",
+    })
+    assert out == {"name": "S Xie", "affiliations": [], "scholar_author_id": "abc123"}
+
+
+def test_serpapi_profile_enrichment_fills_repeated_blank_authors(monkeypatch):
+    monkeypatch.setattr(serpapi_client, "SERPAPI_KEY", "test-key")
+    citations = [
+        _citation("Paper A", ["S Xie"]),
+        _citation("Paper B", ["S Xie"]),
+    ]
+    for citation in citations:
+        citation["authors"][0]["scholar_author_id"] = "abc123"
+
+    calls = []
+
+    def fake_fetch(author_id):
+        calls.append(author_id)
+        return ["NYU / Google DeepMind"]
+
+    monkeypatch.setattr(serpapi_client, "fetch_author_affiliation", fake_fetch)
+    serpapi_client.enrich_author_profiles(citations, max_workers=2)
+
+    assert calls == ["abc123"]
+    assert citations[0]["authors"][0]["affiliations"] == ["NYU / Google DeepMind"]
+    assert citations[1]["authors"][0]["affiliations"] == ["NYU / Google DeepMind"]
+
+
 # ---------- Flask endpoint ----------------------------------------------------
 
 @pytest.fixture()
